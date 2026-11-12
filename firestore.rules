@@ -1,0 +1,82 @@
+rules_version = '2';
+
+// Reglas para la app de Votaciones.
+// Publícalas en Firebase Console > Firestore Database > Reglas (o con `firebase deploy --only firestore:rules`).
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function pollData(pollId) {
+      return get(/databases/$(database)/documents/polls/$(pollId)).data;
+    }
+
+    // ---------- Votación original de Navidad (index.html del repo "votaciones") ----------
+    // Se mantiene para no romperla. Si tus reglas actuales de /votes son distintas, conserva las tuyas.
+    match /votes/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && request.auth.uid == uid;
+    }
+
+    // ---------- Votaciones ----------
+    match /polls/{pollId} {
+      // Cualquiera con sesión iniciada puede abrir una votación si tiene el enlace.
+      allow read: if signedIn();
+
+      allow create: if signedIn()
+        && request.resource.data.ownerUid == request.auth.uid
+        && request.resource.data.title is string
+        && request.resource.data.title.size() > 0
+        && request.resource.data.title.size() <= 120
+        && request.resource.data.type in ['hours', 'days', 'weeks', 'months']
+        && request.resource.data.slots is list
+        && request.resource.data.slots.size() > 0
+        && request.resource.data.slots.size() <= 400
+        && request.resource.data.options is list
+        && request.resource.data.options.size() <= 4
+        && request.resource.data.closed == false;
+
+      // El creador solo puede cerrar/reabrir (y cambiar título o descripción).
+      allow update: if signedIn()
+        && resource.data.ownerUid == request.auth.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['closed', 'title', 'description']);
+
+      allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
+
+      // Participantes: un documento por persona (su id es su uid).
+      match /votes/{uid} {
+        allow read: if signedIn();
+
+        // Con la votación cerrada se puede entrar como participante, pero no cambiar los votos.
+        allow create: if signedIn()
+          && request.auth.uid == uid
+          && validVote()
+          && (pollData(pollId).get('closed', false) == false || !('picks' in request.resource.data));
+
+        allow update: if signedIn()
+          && request.auth.uid == uid
+          && validVote()
+          && (pollData(pollId).get('closed', false) == false
+              || request.resource.data.get('picks', []) == resource.data.get('picks', []));
+
+        // Cada uno puede borrar su participación; el creador puede borrar todas (al eliminar la votación).
+        allow delete: if signedIn()
+          && (request.auth.uid == uid || pollData(pollId).ownerUid == request.auth.uid);
+
+        function validVote() {
+          let d = request.resource.data;
+          return d.name is string
+            && d.name.size() <= 100
+            && (!('picks' in d) || (d.picks is list && d.picks.size() <= 3000));
+        }
+      }
+    }
+
+    // ---------- Colección privada de cada usuario: sus votaciones y sus grupos ----------
+    match /users/{uid}/{document=**} {
+      allow read, write: if signedIn() && request.auth.uid == uid;
+    }
+  }
+}
