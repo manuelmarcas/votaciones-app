@@ -31,6 +31,12 @@ pero todo es configurable.
   o el menú de compartir del móvil.
 - Quien abre el enlace e inicia sesión **queda como participante** (aparece en la tabla aunque aún no haya votado)
   y la votación **se añade a su menú**.
+- **Votos visibles o anónimos** (se elige al crearla). Con votos visibles, en la tabla de participantes se pulsa
+  un nombre para ver qué ha votado esa persona, y en "opciones más votadas" se puede desplegar quién las votó.
+  En las anónimas solo se ven los totales y si cada persona ha votado. El creador puede hacer anónima una votación
+  visible, pero no al revés.
+  *Ojo*: el anonimato es de la interfaz. Los votos se guardan en documentos que cualquier participante puede leer
+  (la app los necesita para el recuento), así que alguien con conocimientos técnicos podría consultarlos.
 - El creador puede **cerrar/reabrir** la votación (cerrada ya no admite cambios) y **eliminarla**;
   cerrar y eliminar piden confirmación.
 
@@ -87,7 +93,7 @@ firestore.rules       Reglas de seguridad
 
 | Ruta | Contenido |
 | --- | --- |
-| `polls/{pollId}` | `title`, `description`, `type`, `months`, `slots` (días, lunes de cada semana o meses votables), `hours` y `hourStep` (solo horas), `options` (solo días), `ownerUid`, `ownerName`, `createdAt`, `closed` |
+| `polls/{pollId}` | `title`, `description`, `type`, `anonymous`, `months`, `slots` (días, lunes de cada semana o meses votables), `hours` y `hourStep` (solo horas), `options` (solo días), `ownerUid`, `ownerName`, `createdAt`, `closed` |
 | `polls/{pollId}/votes/{uid}` | Un documento por participante: `name`, `photo`, `picks` (`"<casilla>\|<opción>"`), `seenAt`, `updatedAt` |
 | `users/{uid}` | Perfil: `name` (nombre visible), `photo` (imagen reducida en base64, URL de Google o vacía), `updatedAt` |
 | `users/{uid}/polls/{pollId}` | Colección privada del usuario: `title`, `type`, `role` (`owner`/`participant`), `groupId`, `addedAt`, `openedAt` |

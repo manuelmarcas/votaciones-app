@@ -36,12 +36,16 @@ service cloud.firestore {
         && request.resource.data.slots.size() <= 400
         && request.resource.data.options is list
         && request.resource.data.options.size() <= 4
+        && (!('anonymous' in request.resource.data) || request.resource.data.anonymous is bool)
         && request.resource.data.closed == false;
 
-      // El creador solo puede cerrar/reabrir, cambiar título o descripción y actualizar su nombre visible.
+      // El creador solo puede cerrar/reabrir, cambiar título o descripción, actualizar su nombre visible
+      // y hacerla anónima (nunca al revés, para no destapar votos hechos como anónimos).
       allow update: if signedIn()
         && resource.data.ownerUid == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['closed', 'title', 'description', 'ownerName']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['closed', 'title', 'description', 'ownerName', 'anonymous'])
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['anonymous'])
+            || request.resource.data.anonymous == true);
 
       allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
 

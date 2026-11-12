@@ -105,6 +105,7 @@ export function renderHome(view, ctx) {
     const badges = [
       gone ? `<span class="badge gone">Eliminada</span>` : "",
       p?.closed ? `<span class="badge">Cerrada</span>` : "",
+      p?.anonymous ? `<span class="badge anon">Anónima</span>` : "",
       owner ? `<span class="badge mine">Tuya</span>` : "",
     ].join("");
     const open = expanded === e.id;

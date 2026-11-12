@@ -31,6 +31,7 @@ export function renderCreate(view, ctx) {
     groupId: ctx.lastGroup || "",
     newGroup: "",
     groups: null,      // se rellena al cargar la colección del usuario
+    anonymous: false,
     busy: false,
   };
   applyPresets();
@@ -81,6 +82,10 @@ export function renderCreate(view, ctx) {
       <p class="hint">Las mismas franjas se repetirán en cada uno de los días elegidos.</p>
       <div id="s-hours"></div>
     </section>
+    <section class="step" id="sec-privacy">
+      <h2><span class="num"></span>¿Quién ve los votos?</h2>
+      <div class="privacy" id="s-privacy"></div>
+    </section>
     <div class="create-bar">
       <div class="create-summary" id="c-summary"></div>
       <button type="button" class="btn primary big" id="c-submit">Crear votación</button>
@@ -114,6 +119,7 @@ export function renderCreate(view, ctx) {
       slots: st.type !== "months",
       opts: st.type === "days",
       hours: st.type === "hours",
+      privacy: true,
     };
     let n = 0;
     for (const [k, v] of Object.entries(visible)) {
@@ -126,7 +132,20 @@ export function renderCreate(view, ctx) {
     drawSlots();
     drawOpts();
     drawHours();
+    drawPrivacy();
     drawSummary();
+  }
+
+  function drawPrivacy() {
+    const card = (anon, icon, name, desc) => `
+      <button type="button" class="type-card ${st.anonymous === anon ? "on" : ""}" data-anon="${anon ? 1 : 0}" aria-pressed="${st.anonymous === anon}">
+        <span class="type-icon">${icon}</span>
+        <span class="type-name">${name}</span>
+        <span class="type-desc">${desc}</span>
+      </button>`;
+    q("#s-privacy").innerHTML =
+      card(false, "👁️", "Votos visibles", "Cada participante puede ver qué ha votado cada persona.") +
+      card(true, "🕶️", "Anónima", "Solo se ven los totales. Más adelante no se podrá hacer visible.");
   }
 
   function drawType() {
@@ -316,6 +335,7 @@ export function renderCreate(view, ctx) {
     else parts.push(plural(st.days.size, ["día", "días"]));
     if (st.type === "days") parts.push(plural(st.count, ["opción", "opciones"]) + " por día");
     if (st.type === "hours") parts.push(plural(hourSlots().length, ["franja", "franjas"]) + " por día");
+    parts.push(st.anonymous ? "anónima" : "votos visibles");
     q("#c-summary").textContent = parts.join(" · ");
   }
 
@@ -365,6 +385,7 @@ export function renderCreate(view, ctx) {
       options: type === "days"
         ? st.opts.slice(0, st.count).map((o, i) => ({ id: `o${i + 1}`, name: o.name.trim(), icon: o.icon }))
         : [],
+      anonymous: st.anonymous,
       ownerUid: ctx.user.uid,
       ownerName: ctx.user.name,
       createdAt: Date.now(),
@@ -419,6 +440,9 @@ export function renderCreate(view, ctx) {
       st.type = d.type;
       st.last = null;
       drawAll();
+    } else if (d.anon !== undefined) {
+      st.anonymous = d.anon === "1";
+      drawPrivacy(); drawSummary();
     } else if (d.year) {
       st.year += Number(d.year);
       drawMonths();

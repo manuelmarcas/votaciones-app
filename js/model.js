@@ -10,6 +10,7 @@
 //   hours:   ["HH:MM", ...]          solo en "hours": franjas de cada día
 //   hourStep: minutos de cada franja (solo en "hours")
 //   options: [{ id, name, icon }]    solo en "days": 1 a 4 opciones por día
+//   anonymous: true si no se muestra qué ha votado cada persona (si falta, los votos son visibles)
 //   ownerUid, ownerName, createdAt, closed
 //
 // Voto `polls/{id}/votes/{uid}`: { name, photo, picks: ["<slot>|<opción>", ...] }
@@ -59,18 +60,20 @@ export function tally(poll, votes) {
   slots.forEach(s => opts.forEach(o => valid.add(unitKey(s, o.id))));
 
   const counts = {};
+  const voters = {}; // casilla+opción -> [uid]
   const people = [];
   for (const uid in votes) {
     const v = votes[uid] || {};
     const perOpt = Object.fromEntries(opts.map(o => [o.id, 0]));
-    let total = 0;
-    for (const p of v.picks || []) {
+    const picks = [];
+    for (const p of new Set(v.picks || [])) {
       if (!valid.has(p)) continue;
       counts[p] = (counts[p] || 0) + 1;
+      (voters[p] ||= []).push(uid);
       perOpt[p.slice(p.lastIndexOf("|") + 1)]++;
-      total++;
+      picks.push(p);
     }
-    people.push({ uid, name: v.name || "Alguien", photo: v.photo || "", perOpt, total });
+    people.push({ uid, name: v.name || "Alguien", photo: v.photo || "", perOpt, total: picks.length, picks: picks.sort() });
   }
   people.sort((a, b) => a.name.localeCompare(b.name, "es"));
 
@@ -87,7 +90,17 @@ export function tally(poll, votes) {
   });
   top.sort((a, b) => b.votes - a.votes || a.slot.localeCompare(b.slot) || a.index - b.index);
 
-  return { opts, slots, valid, counts, best, top, people };
+  return { opts, slots, valid, counts, voters, best, top, people };
+}
+
+// Etiqueta corta de una casilla, para listas compactas: "lun 22 dic", "S52 · 21–27 dic"…
+export function slotShort(poll, slot) {
+  switch (poll.type) {
+    case "hours": { const [d, h] = slot.split("T"); return `${D.fmtDayShort(d)} ${h}`; }
+    case "weeks": return `S${D.isoWeek(D.parseDay(slot))} · ${D.fmtWeekRange(slot)}`;
+    case "months": return D.cap(D.fmtMonth(slot));
+    default: return D.fmtDayShort(slot);
+  }
 }
 
 // Descripción corta para listados: "Días · 17 días · 2 opciones".

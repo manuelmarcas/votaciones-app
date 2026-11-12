@@ -1026,3 +1026,65 @@ emoji-picker{
   --num-columns:8;
 }
 .emoji-panel.sheet emoji-picker{--num-columns:8;--emoji-size:1.6rem}
+
+/* ---------- Votos visibles / anónimos ---------- */
+.mode-line{display:flex;flex-wrap:wrap;align-items:center;gap:6px 10px;margin:0 0 6px}
+.mode-pill{
+  display:inline-flex;
+  align-items:center;
+  gap:4px;
+  font-size:.76rem;
+  font-weight:700;
+  padding:3px 10px;
+  border-radius:99px;
+  background:var(--green-soft);
+  color:var(--green-dark);
+}
+.mode-pill.anon{background:#ece8f6;color:#4b3f72}
+.mode-line .link-btn{font-size:.8rem}
+.badge.anon{background:#ece8f6;color:#4b3f72}
+.privacy{display:grid;grid-template-columns:1fr;gap:10px}
+@container view (min-width:560px){.privacy{grid-template-columns:1fr 1fr}}
+
+.table-hint{font-size:.82rem;color:var(--muted);margin:0 0 6px}
+.person-btn{
+  border:none;
+  background:none;
+  padding:3px 8px 3px 0;
+  margin-left:-2px;
+  color:inherit;
+  font:inherit;
+  text-align:left;
+  cursor:pointer;
+  border-radius:8px;
+}
+.person-btn:hover{background:var(--hover)}
+.person .caret{width:12px;flex:none;color:var(--muted);font-size:.72rem;transition:transform .15s;text-align:center}
+.person-btn[aria-expanded="true"] .caret{transform:rotate(90deg)}
+.person-idle{padding-left:12px}
+tr.open td{border-bottom-color:transparent}
+.pv-row td{padding:0 6px 10px 44px}
+.vline{display:flex;align-items:flex-start;gap:8px;padding-top:4px}
+.vline + .vline{padding-top:6px}
+.vopt{display:inline-flex;align-items:center;gap:4px;flex:none;padding-top:2px}
+.vchips{display:flex;flex-wrap:wrap;gap:4px}
+.vchip{font-size:.78rem;background:var(--soft);border-radius:99px;padding:3px 9px;white-space:nowrap}
+.vchip b{font-weight:700}
+
+.votes-btn{
+  border:1px solid var(--line);
+  background:#fff;
+  border-radius:99px;
+  padding:4px 10px;
+  font:inherit;
+  font-weight:700;
+  color:var(--ink);
+  cursor:pointer;
+  white-space:nowrap;
+}
+.votes-btn:hover{background:var(--hover)}
+.votes-btn .caret{display:inline-block;font-size:.7rem;color:var(--muted);transition:transform .15s}
+.votes-btn[aria-expanded="true"]{background:var(--green-soft);border-color:#cfe1d4}
+.votes-btn[aria-expanded="true"] .caret{transform:rotate(180deg)}
+.voters{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding-top:6px}
+.voter{display:inline-flex;align-items:center;gap:6px;background:var(--soft);border-radius:99px;padding:2px 10px 2px 2px;font-size:.84rem}

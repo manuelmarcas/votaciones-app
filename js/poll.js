@@ -1,6 +1,6 @@
 // Pantalla de una votación: calendario, recuentos y participantes.
 import * as D from "./dates.js";
-import { TYPE, tally, unitKey, slotLabel, pollRange, plural } from "./model.js";
+import { TYPE, tally, unitKey, slotLabel, slotShort, pollRange, plural } from "./model.js";
 import { $, esc, toast, errMsg, pollUrl, confirmDialog, avatarHTML } from "./ui.js";
 import { openShare } from "./share.js";
 
@@ -9,6 +9,8 @@ export function renderPoll(view, ctx, id) {
   let poll = null, votes = {}, library = null;
   let pollLoaded = false, votesLoaded = false, joined = false;
   let status = "", fatal = "";
+  const openPeople = new Set(); // participantes con sus votos desplegados
+  const openVoters = new Set(); // "más votadas" con la lista de quién las votó desplegada
 
   view.innerHTML = `<div class="loading">Cargando votación…</div>`;
 
@@ -74,6 +76,10 @@ export function renderPoll(view, ctx, id) {
       <div class="poll-head">
         <div class="poll-title">
           <div class="kicker">${t.icon} Votación por ${t.name.toLowerCase()} · creada por ${isOwner ? "ti" : esc(poll.ownerName || "alguien")} · 👥 ${plural(T.people.length, ["participante", "participantes"])}</div>
+          <div class="mode-line">
+            <span class="mode-pill ${poll.anonymous ? "anon" : ""}">${poll.anonymous ? "🕶️ Anónima" : "👁️ Votos visibles"}</span>
+            ${isOwner && !poll.anonymous ? `<button class="link-btn" data-act="anon">Hacer anónima</button>` : ""}
+          </div>
           <h1>${esc(poll.title)}</h1>
           ${poll.description ? `<p class="desc">${esc(poll.description)}</p>` : ""}
         </div>
@@ -87,17 +93,20 @@ export function renderPoll(view, ctx, id) {
         </div>
       </div>
       ${poll.closed ? `<div class="closed-banner">🔒 Votación cerrada: ya no se pueden cambiar los votos.</div>` : ""}
-      <p class="poll-sub">${esc(instructions(poll, T))} ${esc(pollRange(poll))}</p>
+      <p class="poll-sub">${esc(instructions(poll, T))} ${esc(pollRange(poll))} ${poll.anonymous
+        ? "Es anónima: nadie ve qué ha votado cada persona, solo los totales."
+        : "Los demás participantes pueden ver qué ha votado cada uno."}</p>
       <div class="legend">${legend(poll, T)}</div>
       <div class="status" id="poll-status" role="alert">${esc(status)}</div>
       ${board}
       <section class="summary">
         <h2>🏆 Opciones más votadas</h2>
-        <div class="summary-list">${summary(poll, T)}</div>
+        <div class="summary-list">${summary(poll, T, openVoters)}</div>
       </section>
       <section class="results">
         <h2>👥 Participantes <span class="muted">(${T.people.length})</span></h2>
-        <div class="table-wrap">${peopleTable(poll, T, user.uid)}</div>
+        ${!poll.anonymous && T.people.some(p => p.total) ? `<p class="table-hint">Pulsa en un nombre para ver qué ha votado.</p>` : ""}
+        <div class="table-wrap">${peopleTable(poll, T, user.uid, openPeople)}</div>
       </section>`;
 
     if (scrollLeft) $(".hours-wrap", view).scrollLeft = scrollLeft;
@@ -126,6 +135,9 @@ export function renderPoll(view, ctx, id) {
     const b = e.target.closest("button");
     if (!b || b.disabled || !poll) return;
     if (b.dataset.u) return toggle(b.dataset.u);
+    const toggleIn = (set, k) => { set.has(k) ? set.delete(k) : set.add(k); draw(); };
+    if (b.dataset.person) return toggleIn(openPeople, b.dataset.person);
+    if (b.dataset.voters) return toggleIn(openVoters, b.dataset.voters);
     const act = b.dataset.act;
     try {
       if (act === "share") {
@@ -138,6 +150,14 @@ export function renderPoll(view, ctx, id) {
         }))) return;
         await store.updatePoll(id, { closed: !poll.closed });
         toast(poll.closed ? "Votación cerrada" : "Votación reabierta");
+      } else if (act === "anon") {
+        if (!(await confirmDialog({
+          title: "¿Hacer anónima la votación?",
+          message: "Dejará de mostrarse qué ha votado cada persona; solo se verán los totales. No se puede deshacer, para no destapar votos que se hicieron como anónimos.",
+          confirmLabel: "Hacer anónima",
+        }))) return;
+        await store.updatePoll(id, { anonymous: true });
+        toast("La votación ahora es anónima");
       } else if (act === "delete") {
         if (!(await confirmDialog({
           title: `¿Eliminar «${poll.title}»?`,
@@ -186,30 +206,74 @@ function legend(poll, T) {
     <span class="lg"><span class="count">3</span>Votos de todos</span>${best}`;
 }
 
-function summary(poll, T) {
+function summary(poll, T, openVoters) {
   if (!T.top.length) return `<div class="summary-empty">Todavía no hay votos suficientes.</div>`;
   const tag = e => (poll.type === "days" ? `${esc(e.opt.icon)} ${esc(e.opt.name)}` : TYPE[poll.type].icon);
-  return T.top.map(e => `
+  const byUid = Object.fromEntries(T.people.map(p => [p.uid, p]));
+  return T.top.map(e => {
+    const u = unitKey(e.slot, e.opt.id);
+    const votes = plural(e.votes, ["voto", "votos"]);
+    const open = !poll.anonymous && openVoters.has(u);
+    return `
     <div class="summary-row">
       <span class="tag-best ${poll.type === "days" ? "" : "icon-only"}">${tag(e)}</span>
       <span class="what">${esc(slotLabel(poll, e.slot))}</span>
-      <span class="votes">${plural(e.votes, ["voto", "votos"])}</span>
-    </div>`).join("");
+      ${poll.anonymous
+        ? `<span class="votes">${votes}</span>`
+        : `<button class="votes votes-btn" data-voters="${esc(u)}" aria-expanded="${open}" title="Ver quién lo ha votado">👥 ${votes} <span class="caret" aria-hidden="true">▾</span></button>`}
+      ${open ? `<div class="voters">${(T.voters[u] || []).map(uid => byUid[uid]).filter(Boolean)
+        .sort((a, b) => a.name.localeCompare(b.name, "es"))
+        .map(p => `<span class="voter">${avatarHTML(p.name, p.photo, 22, p.uid)}${esc(p.name)}</span>`).join("")}</div>` : ""}
+    </div>`;
+  }).join("");
 }
 
-function peopleTable(poll, T, me) {
-  const multi = poll.type === "days";
-  const head = multi
-    ? T.opts.map(o => `<th class="n">${esc(o.icon)} ${esc(o.name)}</th>`).join("")
-    : `<th class="n">Votos</th>`;
-  const rows = T.people.map(p => `
-    <tr>
-      <td><span class="person">${avatarHTML(p.name, p.photo, 26, p.uid)}<span>${esc(p.name)}${p.uid === me ? ` <span class="muted">(tú)</span>` : ""}${p.total ? "" : ` <span class="muted">· aún no ha votado</span>`}</span></span></td>
-      ${multi ? T.opts.map(o => `<td class="n">${p.perOpt[o.id]}</td>`).join("") : `<td class="n">${p.total}</td>`}
-    </tr>`).join("");
+// Votos de una persona en una línea compacta: etiquetas agrupadas por opción (y por día en las de horas).
+function personVotes(poll, T, picks) {
+  const bySlot = new Map(T.opts.map(o => [o.id, []]));
+  picks.forEach(p => { const i = p.lastIndexOf("|"); bySlot.get(p.slice(i + 1))?.push(p.slice(0, i)); });
+  return T.opts.map((o, idx) => {
+    const slots = bySlot.get(o.id);
+    if (!slots.length) return "";
+    let chips;
+    if (poll.type === "hours") {
+      const byDay = new Map();
+      slots.forEach(s => { const [d, h] = s.split("T"); if (!byDay.has(d)) byDay.set(d, []); byDay.get(d).push(h); });
+      chips = [...byDay].map(([d, hs]) => `<span class="vchip"><b>${esc(D.fmtDayShort(d))}</b> ${hs.join(", ")}</span>`).join("");
+    } else {
+      chips = slots.map(s => `<span class="vchip">${esc(slotShort(poll, s))}</span>`).join("");
+    }
+    const label = poll.type === "days" ? `<span class="vopt" title="${esc(o.name)}"><span class="sw c${idx}"></span>${esc(o.icon)}</span>` : "";
+    return `<div class="vline">${label}<div class="vchips">${chips}</div></div>`;
+  }).join("");
+}
+
+function peopleTable(poll, T, me, openPeople) {
+  const anon = !!poll.anonymous;
+  const multi = poll.type === "days" && !anon;
+  const cols = anon ? 2 : multi ? T.opts.length + 1 : 2;
+  const head = anon
+    ? `<th class="n">¿Ha votado?</th>`
+    : multi ? T.opts.map(o => `<th class="n">${esc(o.icon)} ${esc(o.name)}</th>`).join("") : `<th class="n">Votos</th>`;
+  const rows = T.people.map(p => {
+    const who = `${avatarHTML(p.name, p.photo, 26, p.uid)}<span>${esc(p.name)}${p.uid === me ? ` <span class="muted">(tú)</span>` : ""}${!anon && !p.total ? ` <span class="muted">· aún no ha votado</span>` : ""}</span>`;
+    if (anon) {
+      return `<tr><td><span class="person">${who}</span></td><td class="n">${p.total ? "✓ Sí" : `<span class="muted">Aún no</span>`}</td></tr>`;
+    }
+    const open = openPeople.has(p.uid) && p.total > 0;
+    const counts = multi ? T.opts.map(o => `<td class="n">${p.perOpt[o.id]}</td>`).join("") : `<td class="n">${p.total}</td>`;
+    return `
+    <tr class="${open ? "open" : ""}">
+      <td>${p.total
+        ? `<button class="person person-btn" data-person="${esc(p.uid)}" aria-expanded="${open}"><span class="caret" aria-hidden="true">▸</span>${who}</button>`
+        : `<span class="person person-idle">${who}</span>`}</td>
+      ${counts}
+    </tr>
+    ${open ? `<tr class="pv-row"><td colspan="${cols}">${personVotes(poll, T, p.picks)}</td></tr>` : ""}`;
+  }).join("");
   return `<table>
     <thead><tr><th>Participante</th>${head}</tr></thead>
-    <tbody>${rows || `<tr><td colspan="${multi ? T.opts.length + 1 : 2}">Todavía no ha entrado nadie.</td></tr>`}</tbody>
+    <tbody>${rows || `<tr><td colspan="${cols}">Todavía no ha entrado nadie.</td></tr>`}</tbody>
   </table>`;
 }
 
