@@ -31,6 +31,12 @@ pero todo es configurable.
   o el menú de compartir del móvil.
 - Quien abre el enlace e inicia sesión **queda como participante** (aparece en la tabla aunque aún no haya votado)
   y la votación **se añade a su menú**.
+- **Ranking**: "opciones más votadas" muestra las 5 primeras de todas las opciones, con su puesto (los empates
+  comparten puesto).
+- **Desempate**: si hay varias opciones empatadas en el primer puesto, el creador puede abrir un desempate.
+  La votación principal se cierra y cada participante elige **una sola** de las empatadas (puede cambiarla mientras
+  esté abierto). El creador lo finaliza, puede repetirlo entre las que sigan empatadas o anularlo; la ganadora se
+  marca en el ranking. Reabrir la votación principal anula el desempate.
 - **Votos visibles o anónimos** (se elige al crearla). Con votos visibles, en la tabla de participantes se pulsa
   un nombre para ver qué ha votado esa persona, y en "opciones más votadas" se puede desplegar quién las votó.
   En las anónimas solo se ven los totales y si cada persona ha votado. El creador puede hacer anónima una votación
@@ -93,8 +99,8 @@ firestore.rules       Reglas de seguridad
 
 | Ruta | Contenido |
 | --- | --- |
-| `polls/{pollId}` | `title`, `description`, `type`, `anonymous`, `months`, `slots` (días, lunes de cada semana o meses votables), `hours` y `hourStep` (solo horas), `options` (solo días), `ownerUid`, `ownerName`, `createdAt`, `closed` |
-| `polls/{pollId}/votes/{uid}` | Un documento por participante: `name`, `photo`, `picks` (`"<casilla>\|<opción>"`), `seenAt`, `updatedAt` |
+| `polls/{pollId}` | `title`, `description`, `type`, `anonymous`, `tiebreak` (`id`, `candidates`, `done`, `round`), `months`, `slots` (días, lunes de cada semana o meses votables), `hours` y `hourStep` (solo horas), `options` (solo días), `ownerUid`, `ownerName`, `createdAt`, `closed` |
+| `polls/{pollId}/votes/{uid}` | Un documento por participante: `name`, `photo`, `picks` (`"<casilla>\|<opción>"`), `tb` (voto del desempate: `{ id, pick }`), `seenAt`, `updatedAt` |
 | `users/{uid}` | Perfil: `name` (nombre visible), `photo` (imagen reducida en base64, URL de Google o vacía), `updatedAt` |
 | `users/{uid}/polls/{pollId}` | Colección privada del usuario: `title`, `type`, `role` (`owner`/`participant`), `groupId`, `addedAt`, `openedAt` |
 | `users/{uid}/groups/{groupId}` | Grupos privados del usuario: `name`, `createdAt` |

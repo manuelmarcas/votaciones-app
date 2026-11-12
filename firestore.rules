@@ -43,9 +43,15 @@ service cloud.firestore {
       // y hacerla anónima (nunca al revés, para no destapar votos hechos como anónimos).
       allow update: if signedIn()
         && resource.data.ownerUid == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['closed', 'title', 'description', 'ownerName', 'anonymous'])
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['closed', 'title', 'description', 'ownerName', 'anonymous', 'tiebreak'])
         && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['anonymous'])
-            || request.resource.data.anonymous == true);
+            || request.resource.data.anonymous == true)
+        && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['tiebreak'])
+            || request.resource.data.tiebreak == null
+            || (request.resource.data.tiebreak.id is number
+                && request.resource.data.tiebreak.candidates is list
+                && request.resource.data.tiebreak.candidates.size() >= 2
+                && request.resource.data.tiebreak.candidates.size() <= 50));
 
       allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
 
@@ -57,11 +63,13 @@ service cloud.firestore {
         allow create: if signedIn()
           && request.auth.uid == uid
           && validVote()
+          && validTiebreakVote(null)
           && (pollData(pollId).get('closed', false) == false || !('picks' in request.resource.data));
 
         allow update: if signedIn()
           && request.auth.uid == uid
           && validVote()
+          && validTiebreakVote(resource.data.get('tb', null))
           && (pollData(pollId).get('closed', false) == false
               || request.resource.data.get('picks', []) == resource.data.get('picks', []));
 
@@ -75,6 +83,17 @@ service cloud.firestore {
             && d.name.size() <= 100
             && (!('photo' in d) || (d.photo is string && d.photo.size() <= 150000))
             && (!('picks' in d) || (d.picks is list && d.picks.size() <= 3000));
+        }
+
+        // Desempate: un solo voto ({ id, pick }) a una opción candidata y solo mientras esté abierto.
+        function validTiebreakVote(old) {
+          let tb = request.resource.data.get('tb', null);
+          let p = pollData(pollId);
+          return tb == old || (
+            p.get('tiebreak', null) != null
+            && p.tiebreak.get('done', false) == false
+            && (tb == null
+                || (tb is map && tb.id == p.tiebreak.id && tb.pick is string && tb.pick in p.tiebreak.candidates)));
         }
       }
     }

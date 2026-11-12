@@ -58,6 +58,8 @@ export async function createFirebaseStore(config) {
     joinPoll: (id, user) => F.setDoc(F.doc(votesCol(id), user.uid),
       { name: user.name, photo: user.photo, seenAt: Date.now() }, { merge: true }),
     saveVote: (id, uid, data) => F.setDoc(F.doc(votesCol(id), uid), data, { merge: true }),
+    // Voto del desempate (la votación principal está cerrada, pero el desempate no).
+    saveTiebreakVote: (id, uid, data) => F.setDoc(F.doc(votesCol(id), uid), data, { merge: true }),
     // Actualiza nombre/foto del participante sin tocar sus votos (permitido aunque esté cerrada).
     updateParticipant: (id, uid, data) => F.setDoc(F.doc(votesCol(id), uid), data, { merge: true }),
 
@@ -173,6 +175,16 @@ export function createDemoStore() {
       write(db);
     },
 
+    async saveTiebreakVote(id, uid, data) {
+      const db = load();
+      const p = db.polls[id];
+      if (!p) throw fail("not-found");
+      const tb = p.tiebreak;
+      if (!tb || tb.done || (data.tb && (data.tb.id !== tb.id || !tb.candidates.includes(data.tb.pick)))) throw fail("permission-denied");
+      const votes = (db.votes[id] ||= {});
+      votes[uid] = { ...(votes[uid] || {}), ...clone(data) };
+      write(db);
+    },
     async updateParticipant(id, uid, data) {
       const db = load();
       if (!db.polls[id]) throw fail("not-found");

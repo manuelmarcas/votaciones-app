@@ -11,9 +11,10 @@
 //   hourStep: minutos de cada franja (solo en "hours")
 //   options: [{ id, name, icon }]    solo en "days": 1 a 4 opciones por día
 //   anonymous: true si no se muestra qué ha votado cada persona (si falta, los votos son visibles)
+//   tiebreak: { id, candidates: ["<casilla>|<opción>"], done, round } desempate del primer puesto (o null)
 //   ownerUid, ownerName, createdAt, closed
 //
-// Voto `polls/{id}/votes/{uid}`: { name, photo, picks: ["<slot>|<opción>", ...] }
+// Voto `polls/{id}/votes/{uid}`: { name, photo, picks: ["<slot>|<opción>", ...], tb: { id, pick } }
 
 import * as D from "./dates.js";
 
@@ -26,6 +27,7 @@ export const TYPES = [
 export const TYPE = Object.fromEntries(TYPES.map(t => [t.id, t]));
 
 export const MAX_OPTIONS = 4;
+export const TOP_N = 5; // opciones que se muestran en "más votadas"
 const SINGLE = [{ id: "v", name: "Votos", icon: "" }];
 
 export const plural = (n, [one, many]) => `${n} ${n === 1 ? one : many}`;
@@ -77,21 +79,45 @@ export function tally(poll, votes) {
   }
   people.sort((a, b) => a.name.localeCompare(b.name, "es"));
 
+  // Borde verde del calendario: lo más votado de cada opción.
   const best = new Set();
-  const top = [];
-  opts.forEach((o, i) => {
+  opts.forEach(o => {
     let max = 0;
     slots.forEach(s => { max = Math.max(max, counts[unitKey(s, o.id)] || 0); });
-    if (!max) return;
-    slots.forEach(s => {
-      const u = unitKey(s, o.id);
-      if (counts[u] === max) { best.add(u); top.push({ opt: o, index: i, slot: s, votes: max }); }
-    });
+    if (max) slots.forEach(s => { if (counts[unitKey(s, o.id)] === max) best.add(unitKey(s, o.id)); });
   });
-  top.sort((a, b) => b.votes - a.votes || a.slot.localeCompare(b.slot) || a.index - b.index);
 
-  return { opts, slots, valid, counts, voters, best, top, people };
+  // Clasificación general (todas las opciones juntas). Los empates comparten puesto: 1, 1, 3…
+  const ranking = [];
+  opts.forEach((o, i) => slots.forEach(s => {
+    const key = unitKey(s, o.id);
+    if (counts[key]) ranking.push({ key, opt: o, index: i, slot: s, votes: counts[key] });
+  }));
+  ranking.sort((a, b) => b.votes - a.votes || a.slot.localeCompare(b.slot) || a.index - b.index);
+  ranking.forEach((e, k) => { e.rank = k && e.votes === ranking[k - 1].votes ? ranking[k - 1].rank : k + 1; });
+  const top = ranking.slice(0, TOP_N);
+  const leaders = ranking.filter(e => e.rank === 1);
+
+  return { opts, slots, valid, counts, voters, best, ranking, top, leaders, people };
 }
+
+// Recuento del desempate: solo cuentan los votos de esta ronda (mismo id) a una opción candidata.
+export function tiebreakTally(poll, votes) {
+  const tb = poll.tiebreak;
+  if (!tb || !Array.isArray(tb.candidates)) return null;
+  const counts = Object.fromEntries(tb.candidates.map(c => [c, 0]));
+  const voters = Object.fromEntries(tb.candidates.map(c => [c, []]));
+  for (const uid in votes) {
+    const v = votes[uid]?.tb;
+    if (v && v.id === tb.id && v.pick in counts) { counts[v.pick]++; voters[v.pick].push(uid); }
+  }
+  const max = Math.max(0, ...Object.values(counts));
+  const leaders = max ? tb.candidates.filter(c => counts[c] === max) : [];
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  return { ...tb, counts, voters, max, leaders, total };
+}
+
+export const unitParts = u => { const i = u.lastIndexOf("|"); return { slot: u.slice(0, i), optId: u.slice(i + 1) }; };
 
 // Etiqueta corta de una casilla, para listas compactas: "lun 22 dic", "S52 · 21–27 dic"…
 export function slotShort(poll, slot) {

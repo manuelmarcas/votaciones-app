@@ -727,17 +727,34 @@ button.hcell:not(:disabled):not(.on):hover{background:var(--hover)}
   display:flex;
   flex-wrap:wrap;
   align-items:center;
-  gap:4px 10px;
+  gap:8px 12px;
   background:var(--card);
   border:1px solid var(--line);
-  border-left:4px solid var(--best);
+  border-left:4px solid var(--line);
   border-radius:10px;
   padding:10px 14px;
   font-size:.95rem;
 }
-.tag-best{font-weight:700;color:var(--best);min-width:70px}
+.summary-row.first{border-left-color:var(--best)}
+/* El bloque principal crece: si cabe, el botón de votos queda a la derecha; si no, baja alineado a la izquierda. */
+.sr-main{flex:1 1 auto;min-width:0;display:flex;flex-wrap:wrap;align-items:center;gap:4px 10px}
+.rank{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:30px;
+  height:24px;
+  padding:0 6px;
+  border-radius:99px;
+  background:var(--soft);
+  color:var(--muted);
+  font-size:.78rem;
+  font-weight:800;
+}
+.summary-row.first .rank{background:var(--best);color:#fff}
+.tag-best{font-weight:700;color:var(--green-dark);min-width:70px}
 .tag-best.icon-only{min-width:0}
-.summary-row .votes{margin-left:auto;font-weight:700;white-space:nowrap}
+.summary-row .votes{font-weight:700;white-space:nowrap}
 .summary-empty{color:var(--muted);font-size:.9rem;padding:10px 2px}
 .results{
   background:var(--card);
@@ -1088,3 +1105,63 @@ tr.open td{border-bottom-color:transparent}
 .votes-btn[aria-expanded="true"] .caret{transform:rotate(180deg)}
 .voters{flex-basis:100%;display:flex;flex-wrap:wrap;gap:6px;padding-top:6px}
 .voter{display:inline-flex;align-items:center;gap:6px;background:var(--soft);border-radius:99px;padding:2px 10px 2px 2px;font-size:.84rem}
+
+/* ---------- Ranking y desempate ---------- */
+.summary-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px}
+.summary-note{margin:0;font-size:.88rem;color:var(--muted);line-height:1.45}
+.summary-more{margin:2px 2px 0;font-size:.82rem;color:var(--muted)}
+.tb-badge{font-size:.74rem;font-weight:700;background:#fff4d6;color:#7a5a0b;border-radius:99px;padding:3px 9px;white-space:nowrap}
+
+.tiebreak{
+  background:var(--card);
+  border:2px solid #e8c766;
+  border-radius:var(--radius);
+  padding:14px;
+  margin:0 0 20px;
+  box-shadow:var(--shadow);
+}
+.tiebreak.done{border-color:var(--line)}
+.tb-head{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:6px 12px}
+.tb-head h2{margin:0;font-size:1.08rem;color:var(--green-dark)}
+.tb-state{font-size:.78rem;font-weight:700;color:#7a5a0b;background:#fff4d6;border-radius:99px;padding:3px 10px}
+.tiebreak.done .tb-state{color:var(--muted);background:var(--soft)}
+.tb-sub{margin:8px 0 12px;font-size:.92rem;color:var(--muted);line-height:1.45}
+.tb-sub strong{color:var(--ink)}
+.tb-options{display:grid;gap:8px}
+@container view (min-width:680px){.tb-options{grid-template-columns:repeat(2,minmax(0,1fr))}}
+.tb-opt{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  width:100%;
+  min-width:0;
+  text-align:left;
+  border:1px solid var(--line);
+  background:#fff;
+  border-radius:12px;
+  padding:12px;
+  font:inherit;
+  font-size:.93rem;
+  color:var(--ink);
+  cursor:pointer;
+}
+.tb-opt:hover:not(:disabled){border-color:var(--green)}
+.tb-opt:disabled{cursor:default}
+.tb-radio{
+  width:20px;height:20px;
+  flex:none;
+  border-radius:50%;
+  border:2px solid #c9c1ad;
+  background:#fff;
+}
+.tb-opt.on{border-color:var(--green);background:#f0f6f1;box-shadow:inset 0 0 0 1px var(--green)}
+.tb-opt.on .tb-radio{border-color:var(--green);background:var(--green);box-shadow:inset 0 0 0 4px #fff}
+.tb-opt.win{border-color:var(--best);box-shadow:inset 0 0 0 2px var(--best)}
+.tb-label{flex:1;min-width:0;display:flex;align-items:center;gap:8px;line-height:1.35}
+.tb-label .sw{flex:none}
+.tb-opt .count{flex:none;min-width:22px;height:22px;font-size:.78rem}
+.av-stack{display:inline-flex;flex:none;align-items:center}
+.av-stack .av{box-shadow:0 0 0 2px #fff}
+.av-stack .av + .av{margin-left:-7px}
+.av-more{font-size:.72rem;font-weight:700;color:var(--muted);margin-left:4px}
+.tb-actions{display:flex;flex-wrap:wrap;align-items:center;gap:10px 14px;margin-top:12px}

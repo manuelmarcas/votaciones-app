@@ -1,6 +1,6 @@
 // Pantalla de una votación: calendario, recuentos y participantes.
 import * as D from "./dates.js";
-import { TYPE, tally, unitKey, slotLabel, slotShort, pollRange, plural } from "./model.js";
+import { TYPE, TOP_N, tally, tiebreakTally, unitKey, unitParts, slotLabel, slotShort, pollRange, plural } from "./model.js";
 import { $, esc, toast, errMsg, pollUrl, confirmDialog, avatarHTML } from "./ui.js";
 import { openShare } from "./share.js";
 
@@ -65,6 +65,8 @@ export function renderPoll(view, ctx, id) {
 
     const t = TYPE[poll.type];
     const T = tally(poll, votes);
+    const TB = tiebreakTally(poll, votes);
+    const byUid = Object.fromEntries(T.people.map(p => [p.uid, p]));
     const mine = new Set(votes[user.uid]?.picks || []);
     const isOwner = poll.ownerUid === user.uid;
     const canVote = !poll.closed;
@@ -92,16 +94,23 @@ export function renderPoll(view, ctx, id) {
             <button class="btn danger" data-act="delete"><span aria-hidden="true">🗑️</span> Eliminar</button>` : ""}
         </div>
       </div>
-      ${poll.closed ? `<div class="closed-banner">🔒 Votación cerrada: ya no se pueden cambiar los votos.</div>` : ""}
+      ${poll.closed ? `<div class="closed-banner">🔒 Votación cerrada: ya no se pueden cambiar los votos${TB && !TB.done ? ". Hay un desempate abierto justo debajo" : ""}.</div>` : ""}
       <p class="poll-sub">${esc(instructions(poll, T))} ${esc(pollRange(poll))} ${poll.anonymous
         ? "Es anónima: nadie ve qué ha votado cada persona, solo los totales."
         : "Los demás participantes pueden ver qué ha votado cada uno."}</p>
       <div class="legend">${legend(poll, T)}</div>
       <div class="status" id="poll-status" role="alert">${esc(status)}</div>
+      ${TB ? tiebreakCard(poll, T, TB, votes[user.uid]?.tb, isOwner, byUid) : ""}
       ${board}
       <section class="summary">
-        <h2>🏆 Opciones más votadas</h2>
-        <div class="summary-list">${summary(poll, T, openVoters)}</div>
+        <div class="summary-head">
+          <h2>🏆 Opciones más votadas</h2>
+          ${T.leaders.length > 1 && !TB && isOwner ? `<button class="btn small" data-act="tb-start">⚖️ Desempatar</button>` : ""}
+        </div>
+        ${T.leaders.length > 1 && !TB ? `<p class="summary-note">Hay ${T.leaders.length} opciones empatadas en el primer puesto.${isOwner
+          ? " Puedes abrir un desempate en el que cada persona elige solo una."
+          : " Quien creó la votación puede abrir un desempate."}</p>` : ""}
+        <div class="summary-list">${summary(poll, T, TB, openVoters, byUid)}</div>
       </section>
       <section class="results">
         <h2>👥 Participantes <span class="muted">(${T.people.length})</span></h2>
@@ -131,10 +140,29 @@ export function renderPoll(view, ctx, id) {
     }
   }
 
+  async function tiebreakVote(u) {
+    const tb = poll?.tiebreak;
+    if (!tb || tb.done) return;
+    const cur = votes[user.uid]?.tb;
+    const next = cur?.id === tb.id && cur.pick === u ? null : { id: tb.id, pick: u }; // pulsar la elegida la quita
+    const prev = votes[user.uid];
+    votes = { ...votes, [user.uid]: { ...(prev || {}), tb: next } };
+    status = "";
+    draw();
+    try {
+      await store.saveTiebreakVote(id, user.uid, { name: user.name, photo: user.photo, tb: next });
+    } catch (e) {
+      votes = { ...votes, [user.uid]: prev };
+      status = "No se pudo guardar el voto del desempate. " + errMsg(e);
+      draw();
+    }
+  }
+
   view.onclick = async e => {
     const b = e.target.closest("button");
     if (!b || b.disabled || !poll) return;
     if (b.dataset.u) return toggle(b.dataset.u);
+    if (b.dataset.tb) return tiebreakVote(b.dataset.tb);
     const toggleIn = (set, k) => { set.has(k) ? set.delete(k) : set.add(k); draw(); };
     if (b.dataset.person) return toggleIn(openPeople, b.dataset.person);
     if (b.dataset.voters) return toggleIn(openVoters, b.dataset.voters);
@@ -148,8 +176,51 @@ export function renderPoll(view, ctx, id) {
           message: "Nadie podrá votar ni cambiar sus votos. Los resultados seguirán visibles y podrás reabrirla cuando quieras.",
           confirmLabel: "Cerrar votación",
         }))) return;
-        await store.updatePoll(id, { closed: !poll.closed });
+        if (poll.closed && poll.tiebreak && !(await confirmDialog({
+          title: "¿Reabrir la votación?",
+          message: "Se anulará el desempate y sus votos, porque al reabrir el recuento puede cambiar.",
+          confirmLabel: "Reabrir y anular desempate",
+          danger: true,
+        }))) return;
+        await store.updatePoll(id, poll.closed ? { closed: false, tiebreak: null } : { closed: true });
         toast(poll.closed ? "Votación cerrada" : "Votación reabierta");
+      } else if (act === "tb-start") {
+        const leaders = tally(poll, votes).leaders;
+        if (leaders.length < 2) return;
+        if (!(await confirmDialog({
+          title: "¿Abrir un desempate?",
+          message: `Se cerrará la votación principal y cada participante podrá elegir solo una de las ${leaders.length} opciones empatadas en el primer puesto.`,
+          confirmLabel: "Abrir desempate",
+        }))) return;
+        await store.updatePoll(id, { closed: true, tiebreak: { id: Date.now(), candidates: leaders.slice(0, 50).map(e => e.key), done: false, round: 1 } });
+        toast("Desempate abierto");
+      } else if (act === "tb-finish") {
+        if (!(await confirmDialog({
+          title: "¿Finalizar el desempate?",
+          message: "Ya no se podrá votar en él y se mostrará el resultado.",
+          confirmLabel: "Finalizar",
+        }))) return;
+        await store.updatePoll(id, { tiebreak: { ...poll.tiebreak, done: true, finishedAt: Date.now() } });
+        toast("Desempate finalizado");
+      } else if (act === "tb-repeat") {
+        const tbNow = tiebreakTally(poll, votes);
+        if (!tbNow || tbNow.leaders.length < 2) return;
+        if (!(await confirmDialog({
+          title: "¿Repetir el desempate?",
+          message: `Nueva ronda solo entre las ${tbNow.leaders.length} opciones que siguen empatadas. Cada persona vuelve a elegir una.`,
+          confirmLabel: "Repetir desempate",
+        }))) return;
+        await store.updatePoll(id, { tiebreak: { id: Date.now(), candidates: tbNow.leaders, done: false, round: (poll.tiebreak.round || 1) + 1 } });
+        toast("Nueva ronda de desempate");
+      } else if (act === "tb-cancel") {
+        if (!(await confirmDialog({
+          title: poll.tiebreak?.done ? "¿Quitar el desempate?" : "¿Anular el desempate?",
+          message: "Se borrará el desempate y sus votos. La votación principal seguirá cerrada; puedes reabrirla si quieres.",
+          confirmLabel: poll.tiebreak?.done ? "Quitar" : "Anular",
+          danger: true,
+        }))) return;
+        await store.updatePoll(id, { tiebreak: null });
+        toast("Desempate anulado");
       } else if (act === "anon") {
         if (!(await confirmDialog({
           title: "¿Hacer anónima la votación?",
@@ -206,18 +277,23 @@ function legend(poll, T) {
     <span class="lg"><span class="count">3</span>Votos de todos</span>${best}`;
 }
 
-function summary(poll, T, openVoters) {
+function summary(poll, T, TB, openVoters, byUid) {
   if (!T.top.length) return `<div class="summary-empty">Todavía no hay votos suficientes.</div>`;
   const tag = e => (poll.type === "days" ? `${esc(e.opt.icon)} ${esc(e.opt.name)}` : TYPE[poll.type].icon);
-  const byUid = Object.fromEntries(T.people.map(p => [p.uid, p]));
+  const tbWinner = TB?.done && TB.leaders.length === 1 ? TB.leaders[0] : null;
+  const more = T.ranking.length - T.top.length;
   return T.top.map(e => {
-    const u = unitKey(e.slot, e.opt.id);
+    const u = e.key;
     const votes = plural(e.votes, ["voto", "votos"]);
     const open = !poll.anonymous && openVoters.has(u);
     return `
-    <div class="summary-row">
-      <span class="tag-best ${poll.type === "days" ? "" : "icon-only"}">${tag(e)}</span>
-      <span class="what">${esc(slotLabel(poll, e.slot))}</span>
+    <div class="summary-row ${e.rank === 1 ? "first" : ""}">
+      <div class="sr-main">
+        <span class="rank" title="Puesto ${e.rank}">${e.rank}º</span>
+        <span class="tag-best ${poll.type === "days" ? "" : "icon-only"}">${tag(e)}</span>
+        <span class="what">${esc(slotLabel(poll, e.slot))}</span>
+        ${u === tbWinner ? `<span class="tb-badge">⚖️ Ganó el desempate</span>` : ""}
+      </div>
       ${poll.anonymous
         ? `<span class="votes">${votes}</span>`
         : `<button class="votes votes-btn" data-voters="${esc(u)}" aria-expanded="${open}" title="Ver quién lo ha votado">👥 ${votes} <span class="caret" aria-hidden="true">▾</span></button>`}
@@ -225,7 +301,61 @@ function summary(poll, T, openVoters) {
         .sort((a, b) => a.name.localeCompare(b.name, "es"))
         .map(p => `<span class="voter">${avatarHTML(p.name, p.photo, 22, p.uid)}${esc(p.name)}</span>`).join("")}</div>` : ""}
     </div>`;
+  }).join("") + (more > 0 ? `<p class="summary-more">Y ${plural(more, ["opción más", "opciones más"])} con votos (las ${TOP_N} primeras se muestran arriba).</p>` : "");
+}
+
+// ---------- Desempate ----------
+
+function unitText(poll, T, u) {
+  const { slot, optId } = unitParts(u);
+  const o = T.opts.find(x => x.id === optId);
+  return poll.type === "days" && o ? `${o.icon} ${o.name} · ${slotLabel(poll, slot)}` : slotLabel(poll, slot);
+}
+
+function avatarStack(uids, byUid) {
+  const ps = uids.map(u => byUid[u]).filter(Boolean);
+  if (!ps.length) return "";
+  const names = ps.map(p => p.name).join(", ");
+  return `<span class="av-stack" title="${esc(names)}">${ps.slice(0, 5).map(p => avatarHTML(p.name, p.photo, 22, p.uid)).join("")}${ps.length > 5 ? `<span class="av-more">+${ps.length - 5}</span>` : ""}</span>`;
+}
+
+function tiebreakCard(poll, T, TB, myTb, isOwner, byUid) {
+  const done = !!TB.done;
+  const myPick = myTb?.id === TB.id ? myTb.pick : null;
+  const winner = done && TB.leaders.length === 1 ? TB.leaders[0] : null;
+  const stillTied = done && TB.leaders.length > 1;
+  const sub = done
+    ? winner
+      ? `Ganadora: <strong>${esc(unitText(poll, T, winner))}</strong> (${plural(TB.max, ["voto", "votos"])}).`
+      : TB.total ? "Sigue el empate entre las opciones marcadas." : "Nadie votó en el desempate."
+    : `Hay empate en el primer puesto. Elige <strong>una sola</strong> opción${myPick ? " (puedes cambiarla mientras siga abierto)" : ""}.`;
+  const options = TB.candidates.map(u => {
+    const { optId } = unitParts(u);
+    const idx = Math.max(0, T.opts.findIndex(o => o.id === optId));
+    const isWin = done && TB.max > 0 && TB.leaders.includes(u);
+    return `
+      <button class="tb-opt ${u === myPick ? "on" : ""} ${isWin ? "win" : ""}" data-tb="${esc(u)}" aria-pressed="${u === myPick}" ${done ? "disabled" : ""}>
+        <span class="tb-radio" aria-hidden="true"></span>
+        <span class="tb-label">${poll.type === "days" ? `<span class="sw c${idx}"></span>` : ""}${esc(unitText(poll, T, u))}</span>
+        ${poll.anonymous ? "" : avatarStack(TB.voters[u], byUid)}
+        <span class="count">${TB.counts[u]}</span>
+      </button>`;
   }).join("");
+  const actions = !isOwner ? "" : done
+    ? `${stillTied ? `<button class="btn small" data-act="tb-repeat">⚖️ Repetir entre las empatadas</button>` : ""}
+       <button class="link-btn danger" data-act="tb-cancel">Quitar desempate</button>`
+    : `<button class="btn small primary" data-act="tb-finish">Finalizar desempate</button>
+       <button class="link-btn danger" data-act="tb-cancel">Anular</button>`;
+  return `
+    <section class="tiebreak ${done ? "done" : ""}">
+      <div class="tb-head">
+        <h2>⚖️ Desempate${(TB.round || 1) > 1 ? ` · ronda ${TB.round}` : ""}</h2>
+        <span class="tb-state">${done ? "Finalizado" : `Abierto · ${plural(TB.total, ["voto", "votos"])}`}</span>
+      </div>
+      <p class="tb-sub">${sub}</p>
+      <div class="tb-options">${options}</div>
+      ${actions ? `<div class="tb-actions">${actions}</div>` : ""}
+    </section>`;
 }
 
 // Votos de una persona en una línea compacta: etiquetas agrupadas por opción (y por día en las de horas).
