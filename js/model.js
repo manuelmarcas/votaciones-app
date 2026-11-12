@@ -70,7 +70,7 @@ export function tally(poll, votes) {
       perOpt[p.slice(p.lastIndexOf("|") + 1)]++;
       total++;
     }
-    people.push({ uid, name: v.name || "Alguien", perOpt, total });
+    people.push({ uid, name: v.name || "Alguien", photo: v.photo || "", perOpt, total });
   }
   people.sort((a, b) => a.name.localeCompare(b.name, "es"));
 

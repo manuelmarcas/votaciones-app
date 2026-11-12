@@ -36,14 +36,23 @@
 
 <div id="app" hidden>
   <header class="topbar">
-    <a class="brand" href="#/">🗳️ Votaciones</a>
+    <div class="topbar-left">
+      <button class="sb-toggle" id="sb-toggle" aria-label="Abrir mis votaciones" aria-controls="sidebar" aria-expanded="false">☰</button>
+      <a class="brand" href="#/">🗳️ Votaciones</a>
+    </div>
     <div class="who">
-      <img class="avatar" id="avatar" alt="" hidden>
-      <span id="who-name"></span>
+      <a class="me" href="#/perfil" title="Tu perfil">
+        <span id="me-avatar" class="me-avatar"></span>
+        <span id="who-name"></span>
+      </a>
       <button class="logout-btn" id="logout">Salir</button>
     </div>
   </header>
-  <main id="view"></main>
+  <div class="layout">
+    <aside class="sidebar" id="sidebar" aria-label="Mis votaciones"></aside>
+    <main id="view"></main>
+  </div>
+  <div class="sb-backdrop" id="sb-backdrop"></div>
 </div>
 
 <div id="toast" class="toast" role="status" aria-live="polite"></div>

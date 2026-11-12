@@ -3,13 +3,17 @@ import { createFirebaseStore, createDemoStore } from "./store.js";
 import { renderHome } from "./home.js";
 import { renderCreate } from "./create.js";
 import { renderPoll } from "./poll.js";
-import { $, esc, errMsg } from "./ui.js";
+import { renderProfile } from "./profile.js";
+import { createLibrary } from "./library.js";
+import { createSidebar } from "./sidebar.js";
+import { $, esc, errMsg, avatarHTML } from "./ui.js";
 
 const params = new URLSearchParams(location.search);
 const DEMO = params.has("demo") || !firebaseConfig?.apiKey;
 const view = $("#view");
 const ctx = { store: null, user: null, demo: DEMO, lastGroup: "", homeFilter: "all" };
 let cleanup = null;
+let sidebar = null;
 
 function show(which) {
   $("#boot").hidden = which !== "boot";
@@ -23,12 +27,24 @@ function route() {
   if (!ctx.user) return showGate();
   show("app");
   const h = location.hash.replace(/^#/, "") || "/";
+  // El menú lateral se muestra dentro de una votación y al crear una.
+  document.body.classList.toggle("with-sidebar", h === "/nueva" || h.startsWith("/v/"));
+  setDrawer(false);
+  sidebar.refresh();
   let m;
   if (h === "/") cleanup = renderHome(view, ctx);
   else if (h === "/nueva") cleanup = renderCreate(view, ctx);
+  else if (h === "/perfil") cleanup = renderProfile(view, ctx);
   else if ((m = h.match(/^\/v\/([A-Za-z0-9_-]+)$/))) cleanup = renderPoll(view, ctx, m[1]);
   else return location.replace("#/");
   window.scrollTo(0, 0);
+}
+
+// En móvil el menú lateral es un cajón que se abre con ☰.
+function setDrawer(open) {
+  document.body.classList.toggle("sb-open", open);
+  $("#sb-toggle").setAttribute("aria-expanded", String(open));
+  if (open) $("#sidebar .sb-new")?.focus();
 }
 
 function showGate() {
@@ -53,6 +69,12 @@ $("#demo-login").onsubmit = async e => {
   if (name) await ctx.store.signIn({ name });
 };
 $("#logout").onclick = () => ctx.store.signOut();
+$("#sb-toggle").onclick = () => setDrawer(!document.body.classList.contains("sb-open"));
+$("#sb-backdrop").onclick = () => setDrawer(false);
+$("#sidebar").addEventListener("click", e => { if (e.target.closest("a")) setDrawer(false); });
+document.addEventListener("keydown", e => {
+  if (e.key === "Escape" && document.body.classList.contains("sb-open")) setDrawer(false);
+});
 window.addEventListener("hashchange", route);
 
 try {
@@ -61,6 +83,9 @@ try {
   $("#boot").innerHTML = `<div class="empty-box error">No se pudo cargar la aplicación: ${esc(e.message)}</div>`;
   throw e;
 }
+
+ctx.library = createLibrary(ctx.store);
+sidebar = createSidebar(ctx);
 
 if (DEMO) {
   $("#demo-banner").hidden = false;
@@ -73,15 +98,32 @@ if (DEMO) {
   }
 }
 
-ctx.store.onAuth(u => {
+// Nombre e imagen de la barra superior.
+function paintUser() {
+  if (!ctx.user) return;
+  $("#who-name").textContent = ctx.user.name;
+  $("#me-avatar").innerHTML = avatarHTML(ctx.user.name, ctx.user.photo, 30, ctx.user.uid);
+}
+ctx.onUserChange = paintUser;
+
+ctx.store.onAuth(async authUser => {
   const was = ctx.user?.uid;
-  ctx.user = u;
+  let u = authUser;
   if (u) {
-    $("#who-name").textContent = u.name;
-    const avatar = $("#avatar");
-    avatar.hidden = !u.photo;
-    if (u.photo) avatar.src = u.photo;
+    // El perfil (nombre e imagen elegidos por el usuario) tiene prioridad sobre los datos de Google.
+    let profile = null;
+    try { profile = await ctx.store.getProfile(u.uid); } catch { /* sin perfil: datos de Google */ }
+    u = {
+      ...u,
+      googlePhoto: u.photo,
+      name: profile?.name || u.name,
+      photo: typeof profile?.photo === "string" ? profile.photo : u.photo,
+    };
   }
+  ctx.user = u;
+  paintUser();
   if (was !== u?.uid) { ctx.lastGroup = ""; ctx.homeFilter = "all"; }
+  if (u) { ctx.library.start(u); sidebar.start(u); }
+  else { sidebar.stop(); ctx.library.stop(); }
   route();
 });

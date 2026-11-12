@@ -1,6 +1,6 @@
 // Pantalla "Mis votaciones": la colección del usuario organizada en grupos.
 import { TYPE, pollMeta } from "./model.js";
-import { $, esc, toast, errMsg, sortedGroups, groupOptionsHTML, pollUrl } from "./ui.js";
+import { $, esc, toast, errMsg, sortedGroups, groupOptionsHTML, pollUrl, confirmDialog } from "./ui.js";
 import { openShare } from "./share.js";
 
 const pollCache = new Map(); // id -> votación (o null si ya no existe)
@@ -24,9 +24,6 @@ export function renderHome(view, ctx) {
     </div>
     <div id="home-body"><div class="loading">Cargando…</div></div>`;
   const body = $("#home-body", view);
-
-  const unsub = store.watchLibrary(user.uid, l => { lib = l; fetchMeta(); draw(); },
-    e => { body.innerHTML = `<div class="empty-box error">${esc(errMsg(e))}</div>`; });
 
   function fetchMeta() {
     for (const id of Object.keys(lib.polls)) {
@@ -53,7 +50,7 @@ export function renderHome(view, ctx) {
       `<button class="chip ${filter === f ? "on" : ""}" data-filter="${esc(f)}" aria-pressed="${filter === f}">${label} <span class="n">${n}</span></button>`;
     const chips = [
       chip("all", "Todas", all.length),
-      ...groups.map(g => chip(g.id, `📁 ${esc(g.name)}`, inGroup(g.id).length)),
+      ...groups.map(g => chip(g.id, esc(g.name), inGroup(g.id).length)),
       groups.length ? chip("none", "Sin grupo", inGroup(null).length) : "",
       `<button class="chip ghost" data-act="new-group">＋ Nuevo grupo</button>`,
     ].join("");
@@ -68,7 +65,7 @@ export function renderHome(view, ctx) {
     const g = lib.groups[filter];
     const tools = g && !form ? `
       <div class="group-tools">
-        <strong>📁 ${esc(g.name)}</strong>
+        <strong>${esc(g.name)}</strong>
         <button class="link-btn" data-act="rename-group">Renombrar</button>
         <button class="link-btn danger" data-act="delete-group">Eliminar grupo</button>
       </div>` : "";
@@ -77,7 +74,7 @@ export function renderHome(view, ctx) {
     if (!all.length) {
       list = `<div class="empty-box">Todavía no tienes votaciones. <a href="#/nueva">Crea la primera</a> o abre el enlace que te hayan pasado.</div>`;
     } else if (filter === "all" && groups.length) {
-      const sections = groups.map(gr => ({ title: `📁 ${esc(gr.name)}`, items: inGroup(gr.id) }))
+      const sections = groups.map(gr => ({ title: esc(gr.name), items: inGroup(gr.id) }))
         .concat([{ title: "Sin grupo", items: inGroup(null) }])
         .filter(s => s.items.length);
       list = sections.map(s => `<section class="lib-sec"><h2>${s.title} <span class="muted">(${s.items.length})</span></h2>
@@ -149,7 +146,12 @@ export function renderHome(view, ctx) {
       else if (d.more) expanded = expanded === d.more ? null : d.more;
       else if (d.share) openShare({ url: pollUrl(d.share), title: pollCache.get(d.share)?.title || lib.polls[d.share]?.title || "Votación" });
       else if (d.remove) {
-        if (!confirm("¿Quitar esta votación de tu menú? Tus votos se mantienen y podrás volver con el enlace.")) return;
+        if (!(await confirmDialog({
+          title: "¿Quitar esta votación de tu menú?",
+          message: "Tus votos se mantienen y podrás volver a entrar con el enlace.",
+          confirmLabel: "Quitar",
+          danger: true,
+        }))) return;
         await store.removeLibraryEntry(user.uid, d.remove);
         toast("Quitada de tu menú");
       } else if (d.act === "new-group") form = { mode: "new", value: "" };
@@ -157,7 +159,12 @@ export function renderHome(view, ctx) {
       else if (d.act === "cancel-form") form = null;
       else if (d.act === "delete-group") {
         const g = lib.groups[filter];
-        if (!g || !confirm(`¿Eliminar el grupo «${g.name}»? Sus votaciones no se borran: pasan a «Sin grupo».`)) return;
+        if (!g || !(await confirmDialog({
+          title: `¿Eliminar el grupo «${g.name}»?`,
+          message: "Las votaciones del grupo no se borran: pasan a «Sin grupo».",
+          confirmLabel: "Eliminar grupo",
+          danger: true,
+        }))) return;
         await store.deleteGroup(user.uid, filter);
         setFilter("all");
         toast("Grupo eliminado");
@@ -199,6 +206,14 @@ export function renderHome(view, ctx) {
       toast(groupId ? `Movida a «${lib.groups[groupId]?.name}»` : "Movida a «Sin grupo»");
     } catch (err) { status = errMsg(err); draw(); }
   };
+
+  // Al final: puede llamarse al momento si la colección ya está cargada.
+  const unsub = ctx.library.subscribe((l, e) => {
+    if (e) { body.innerHTML = `<div class="empty-box error">${esc(errMsg(e))}</div>`; return; }
+    lib = l;
+    fetchMeta();
+    draw();
+  });
 
   return () => {
     unsub();

@@ -1,10 +1,8 @@
 // Pantalla "Nueva votación".
 import * as D from "./dates.js";
 import { TYPES, TYPE, MAX_OPTIONS, plural } from "./model.js";
-import { $, esc, toast, errMsg, firstGrapheme, groupOptionsHTML } from "./ui.js";
-
-const EMOJIS = ["✅", "🍽️", "🌙", "☀️", "🌅", "🌇", "☕", "🥐", "🍕", "🍔", "🍷", "🍻", "🎉", "🎄", "🎂", "🎁",
-  "🎬", "🎮", "🎳", "⚽", "🏃", "🏖️", "⛷️", "✈️", "🚗", "🏠", "💼", "📍", "⭐", "❤️"];
+import { $, esc, toast, errMsg, groupOptionsHTML } from "./ui.js";
+import { openEmojiPicker, closeEmojiPicker, insertAtCursor, emojiButtonHTML } from "./emoji.js";
 
 // Nombres e iconos sugeridos según el número de opciones (solo se aplican a las que no se han tocado).
 const PRESETS = {
@@ -30,7 +28,6 @@ export function renderCreate(view, ctx) {
     to: "21:00",
     step: 60,
     last: null,        // última casilla pulsada (para rangos con Mayús)
-    picker: -1,        // opción con el selector de iconos abierto
     groupId: ctx.lastGroup || "",
     newGroup: "",
     groups: null,      // se rellena al cargar la colección del usuario
@@ -46,8 +43,14 @@ export function renderCreate(view, ctx) {
   <div class="create">
     <section class="step" id="sec-name">
       <h2><span class="num"></span>Nombre</h2>
-      <input id="f-title" class="input big" maxlength="120" placeholder="Ej.: Cena de Navidad 2026" autocomplete="off">
-      <textarea id="f-desc" class="input" maxlength="300" rows="2" placeholder="Descripción (opcional)"></textarea>
+      <div class="emoji-field">
+        <input id="f-title" class="input big" maxlength="120" placeholder="Ej.: Cena de Navidad 2026 🎄" autocomplete="off">
+        ${emojiButtonHTML("f-title")}
+      </div>
+      <div class="emoji-field area">
+        <textarea id="f-desc" class="input" maxlength="300" rows="2" placeholder="Descripción (opcional)"></textarea>
+        ${emojiButtonHTML("f-desc")}
+      </div>
       <div class="group-pick">
         <label for="f-group">Guardar en el grupo</label>
         <select id="f-group" class="input"><option value="">Sin grupo</option></select>
@@ -260,13 +263,11 @@ export function renderCreate(view, ctx) {
     const rows = st.opts.slice(0, st.count).map((o, i) => `
       <div class="opt-row">
         <span class="opt-swatch sw c${i}"></span>
-        <button type="button" class="icon-pick" data-picker="${i}" aria-label="Elegir icono de la opción ${i + 1}" aria-expanded="${st.picker === i}">${esc(o.icon) || "＋"}</button>
-        <input class="input" data-opt-name="${i}" maxlength="30" value="${esc(o.name)}" placeholder="Nombre de la opción ${i + 1}" autocomplete="off">
-        ${st.picker === i ? `
-        <div class="emoji-pop">
-          <div class="emoji-grid">${EMOJIS.map(em => `<button type="button" data-emoji="${em}">${em}</button>`).join("")}</div>
-          <input class="input" data-opt-custom="${i}" maxlength="16" placeholder="…o escribe o pega otro emoji" autocomplete="off">
-        </div>` : ""}
+        <button type="button" class="icon-pick" data-picker="${i}" aria-label="Elegir icono de la opción ${i + 1}" aria-expanded="false" title="Elegir icono">${esc(o.icon) || "＋"}</button>
+        <div class="emoji-field">
+          <input class="input" id="f-opt-${i}" data-opt-name="${i}" maxlength="30" value="${esc(o.name)}" placeholder="Nombre de la opción ${i + 1}" autocomplete="off">
+          ${emojiButtonHTML(`f-opt-${i}`)}
+        </div>
       </div>`).join("");
     q("#s-opts").innerHTML = `
       <div class="seg" role="group" aria-label="Opciones por día">
@@ -282,14 +283,6 @@ export function renderCreate(view, ctx) {
   function updatePreview() {
     const el = q(".opt-preview");
     if (el) el.innerHTML = previewHTML();
-  }
-
-  function closePicker() {
-    if (st.picker < 0) return;
-    const btn = q(`[data-picker="${st.picker}"]`);
-    st.picker = -1;
-    q(".emoji-pop")?.remove();
-    btn?.setAttribute("aria-expanded", "false");
   }
 
   function hourSlots() { return D.hourRange(st.from, st.to, st.step); }
@@ -417,7 +410,6 @@ export function renderCreate(view, ctx) {
   }
 
   view.onclick = e => {
-    if (st.picker >= 0 && !e.target.closest(".emoji-pop, [data-picker]")) closePicker();
     const b = e.target.closest("button");
     if (!b || b.disabled) return;
     const d = b.dataset;
@@ -454,19 +446,23 @@ export function renderCreate(view, ctx) {
       drawSlots(); drawSummary();
     } else if (d.count) {
       st.count = Number(d.count);
-      st.picker = -1;
+      closeEmojiPicker();
       applyPresets();
       drawOpts(); drawSummary();
     } else if (d.picker !== undefined) {
+      // Icono de la opción: selector completo de emojis.
       const i = Number(d.picker);
-      st.picker = st.picker === i ? -1 : i;
-      drawOpts();
-      q(`[data-opt-custom="${i}"]`)?.focus({ preventScroll: true });
-    } else if (d.emoji) {
-      const o = st.opts[st.picker];
-      if (o) { o.icon = d.emoji; o.touched = true; }
-      st.picker = -1;
-      drawOpts();
+      openEmojiPicker(b, emoji => {
+        st.opts[i].icon = emoji;
+        st.opts[i].touched = true;
+        b.textContent = emoji;
+        updatePreview();
+        b.focus();
+      });
+    } else if (d.emojiTarget) {
+      // Emojis dentro de un texto (título, descripción, nombre de opción): se pueden poner varios seguidos.
+      const field = document.getElementById(d.emojiTarget);
+      if (field) openEmojiPicker(b, emoji => insertAtCursor(field, emoji), { keepOpen: true });
     } else if (b.id === "c-submit") {
       submit();
     }
@@ -481,14 +477,6 @@ export function renderCreate(view, ctx) {
       const o = st.opts[Number(t.dataset.optName)];
       o.name = t.value;
       o.touched = true;
-      updatePreview();
-    } else if (t.dataset.optCustom !== undefined) {
-      const i = Number(t.dataset.optCustom);
-      const g = firstGrapheme(t.value);
-      if (!g) return;
-      st.opts[i].icon = g;
-      st.opts[i].touched = true;
-      q(`[data-picker="${i}"]`).textContent = g;
       updatePreview();
     }
   };
@@ -507,12 +495,7 @@ export function renderCreate(view, ctx) {
   };
 
   view.onkeydown = e => {
-    if (st.picker >= 0 && (e.key === "Escape" || (e.key === "Enter" && e.target.dataset.optCustom !== undefined))) {
-      e.preventDefault();
-      const i = st.picker;
-      closePicker();
-      q(`[data-picker="${i}"]`)?.focus();
-    } else if (e.key === "Enter" && e.target.id === "f-title") {
+    if (e.key === "Enter" && e.target.id === "f-title") {
       e.preventDefault();
     }
   };
@@ -520,6 +503,6 @@ export function renderCreate(view, ctx) {
   drawAll();
   drawGroups();
   q("#f-title").focus();
-  const unsub = ctx.store.watchLibrary(ctx.user.uid, lib => { st.groups = lib.groups; drawGroups(); }, () => {});
-  return () => unsub();
+  const unsub = ctx.library.subscribe(lib => { if (lib) { st.groups = lib.groups; drawGroups(); } });
+  return () => { unsub(); closeEmojiPicker(); };
 }

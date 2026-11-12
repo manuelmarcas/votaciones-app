@@ -38,10 +38,10 @@ service cloud.firestore {
         && request.resource.data.options.size() <= 4
         && request.resource.data.closed == false;
 
-      // El creador solo puede cerrar/reabrir (y cambiar título o descripción).
+      // El creador solo puede cerrar/reabrir, cambiar título o descripción y actualizar su nombre visible.
       allow update: if signedIn()
         && resource.data.ownerUid == request.auth.uid
-        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['closed', 'title', 'description']);
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['closed', 'title', 'description', 'ownerName']);
 
       allow delete: if signedIn() && resource.data.ownerUid == request.auth.uid;
 
@@ -69,12 +69,13 @@ service cloud.firestore {
           let d = request.resource.data;
           return d.name is string
             && d.name.size() <= 100
+            && (!('photo' in d) || (d.photo is string && d.photo.size() <= 150000))
             && (!('picks' in d) || (d.picks is list && d.picks.size() <= 3000));
         }
       }
     }
 
-    // ---------- Colección privada de cada usuario: sus votaciones y sus grupos ----------
+    // ---------- Datos privados de cada usuario: perfil (users/{uid}), sus votaciones y sus grupos ----------
     match /users/{uid}/{document=**} {
       allow read, write: if signedIn() && request.auth.uid == uid;
     }

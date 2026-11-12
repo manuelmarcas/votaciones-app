@@ -1,7 +1,7 @@
 // Pantalla de una votación: calendario, recuentos y participantes.
 import * as D from "./dates.js";
 import { TYPE, tally, unitKey, slotLabel, pollRange, plural } from "./model.js";
-import { $, esc, toast, errMsg, groupOptionsHTML, pollUrl } from "./ui.js";
+import { $, esc, toast, errMsg, pollUrl, confirmDialog, avatarHTML } from "./ui.js";
 import { openShare } from "./share.js";
 
 export function renderPoll(view, ctx, id) {
@@ -17,8 +17,11 @@ export function renderPoll(view, ctx, id) {
       e => { fatal = errMsg(e); draw(); }),
     store.watchVotes(id, v => { votes = v; votesLoaded = true; sync(); draw(); },
       e => { status = errMsg(e); draw(); }),
-    store.watchLibrary(user.uid, l => { library = l; sync(); draw(); },
-      e => { status = errMsg(e); draw(); }),
+    ctx.library.subscribe((l, e) => {
+      if (e) status = errMsg(e);
+      else { library = l; sync(); }
+      draw();
+    }),
   ];
 
   // Al entrar: el usuario queda como participante y la votación pasa a su colección.
@@ -63,7 +66,6 @@ export function renderPoll(view, ctx, id) {
     const mine = new Set(votes[user.uid]?.picks || []);
     const isOwner = poll.ownerUid === user.uid;
     const canVote = !poll.closed;
-    const entry = library?.polls[id];
 
     const boards = { days: boardDays, weeks: boardWeeks, months: boardMonths, hours: boardHours };
     const board = boards[poll.type](poll, T, mine, canVote);
@@ -75,16 +77,14 @@ export function renderPoll(view, ctx, id) {
           <h1>${esc(poll.title)}</h1>
           ${poll.description ? `<p class="desc">${esc(poll.description)}</p>` : ""}
         </div>
-        <div class="poll-actions">
-          <button class="btn primary" data-act="share">🔗 Compartir</button>
+        <div class="poll-actions ${isOwner ? "owner" : ""}">
+          <button class="btn primary" data-act="share"><span aria-hidden="true">🔗</span> Compartir</button>
           ${isOwner ? `
-            <button class="btn" data-act="close">${poll.closed ? "🔓 Reabrir" : "🔒 Cerrar votación"}</button>
-            <button class="btn danger" data-act="delete">🗑️ Eliminar</button>` : ""}
+            <button class="btn" data-act="close">${poll.closed
+              ? `<span aria-hidden="true">🔓</span> Reabrir`
+              : `<span aria-hidden="true">🔒</span> Cerrar<span class="lbl-long"> votación</span>`}</button>
+            <button class="btn danger" data-act="delete"><span aria-hidden="true">🗑️</span> Eliminar</button>` : ""}
         </div>
-      </div>
-      <div class="poll-group">
-        <label for="p-group">En tu menú, grupo:</label>
-        <select id="p-group" class="input small" ${entry ? "" : "disabled"}>${groupOptionsHTML(library?.groups, entry?.groupId || "")}</select>
       </div>
       ${poll.closed ? `<div class="closed-banner">🔒 Votación cerrada: ya no se pueden cambiar los votos.</div>` : ""}
       <p class="poll-sub">${esc(instructions(poll, T))} ${esc(pollRange(poll))}</p>
@@ -131,10 +131,20 @@ export function renderPoll(view, ctx, id) {
       if (act === "share") {
         openShare({ url: pollUrl(id), title: poll.title });
       } else if (act === "close") {
+        if (!poll.closed && !(await confirmDialog({
+          title: "¿Cerrar la votación?",
+          message: "Nadie podrá votar ni cambiar sus votos. Los resultados seguirán visibles y podrás reabrirla cuando quieras.",
+          confirmLabel: "Cerrar votación",
+        }))) return;
         await store.updatePoll(id, { closed: !poll.closed });
         toast(poll.closed ? "Votación cerrada" : "Votación reabierta");
       } else if (act === "delete") {
-        if (!confirm(`¿Eliminar «${poll.title}» y todos sus votos? No se puede deshacer.`)) return;
+        if (!(await confirmDialog({
+          title: `¿Eliminar «${poll.title}»?`,
+          message: "Se borrarán la votación y todos sus votos para todos los participantes. No se puede deshacer.",
+          confirmLabel: "Eliminar",
+          danger: true,
+        }))) return;
         await store.deletePoll(id, user.uid);
         toast("Votación eliminada");
         location.hash = "#/";
@@ -143,16 +153,6 @@ export function renderPoll(view, ctx, id) {
       status = errMsg(err);
       draw();
     }
-  };
-
-  view.onchange = async e => {
-    if (e.target.id !== "p-group") return;
-    const groupId = e.target.value || null;
-    ctx.lastGroup = groupId || "";
-    try {
-      await store.saveLibraryEntry(user.uid, id, { groupId });
-      toast(groupId ? `Movida a «${library.groups[groupId]?.name}»` : "Movida a «Sin grupo»");
-    } catch (err) { status = errMsg(err); draw(); }
   };
 
   return () => unsubs.forEach(u => u());
@@ -204,7 +204,7 @@ function peopleTable(poll, T, me) {
     : `<th class="n">Votos</th>`;
   const rows = T.people.map(p => `
     <tr>
-      <td>${esc(p.name)}${p.uid === me ? ` <span class="muted">(tú)</span>` : ""}${p.total ? "" : ` <span class="muted">· aún no ha votado</span>`}</td>
+      <td><span class="person">${avatarHTML(p.name, p.photo, 26, p.uid)}<span>${esc(p.name)}${p.uid === me ? ` <span class="muted">(tú)</span>` : ""}${p.total ? "" : ` <span class="muted">· aún no ha votado</span>`}</span></span></td>
       ${multi ? T.opts.map(o => `<td class="n">${p.perOpt[o.id]}</td>`).join("") : `<td class="n">${p.total}</td>`}
     </tr>`).join("");
   return `<table>

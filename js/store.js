@@ -7,6 +7,7 @@
 //   polls/{pollId}/votes/{uid}         participante: { name, photo, picks?, seenAt, updatedAt }
 //   users/{uid}/polls/{pollId}         colección del usuario: { title, type, role, ownerName, groupId, addedAt, openedAt }
 //   users/{uid}/groups/{groupId}       grupos del usuario: { name, createdAt }
+//   users/{uid}                        perfil: { name, photo, updatedAt }
 
 const SDK = "https://www.gstatic.com/firebasejs/10.12.2";
 
@@ -57,6 +58,15 @@ export async function createFirebaseStore(config) {
     joinPoll: (id, user) => F.setDoc(F.doc(votesCol(id), user.uid),
       { name: user.name, photo: user.photo, seenAt: Date.now() }, { merge: true }),
     saveVote: (id, uid, data) => F.setDoc(F.doc(votesCol(id), uid), data, { merge: true }),
+    // Actualiza nombre/foto del participante sin tocar sus votos (permitido aunque esté cerrada).
+    updateParticipant: (id, uid, data) => F.setDoc(F.doc(votesCol(id), uid), data, { merge: true }),
+
+    // ----- Perfil -----
+    async getProfile(uid) {
+      const s = await F.getDoc(F.doc(db, "users", uid));
+      return s.exists() ? s.data() : null;
+    },
+    saveProfile: (uid, data) => F.setDoc(F.doc(db, "users", uid), data, { merge: true }),
 
     // ----- Colección del usuario y grupos -----
     watchLibrary(uid, cb, onErr) {
@@ -160,6 +170,25 @@ export function createDemoStore() {
       if (db.polls[id].closed) throw fail("permission-denied");
       const votes = (db.votes[id] ||= {});
       votes[uid] = { ...(votes[uid] || {}), ...clone(data) };
+      write(db);
+    },
+
+    async updateParticipant(id, uid, data) {
+      const db = load();
+      if (!db.polls[id]) throw fail("not-found");
+      const votes = (db.votes[id] ||= {});
+      votes[uid] = { ...(votes[uid] || {}), ...clone(data) };
+      write(db);
+    },
+
+    async getProfile(uid) {
+      const p = load().users[uid]?.profile;
+      return p ? clone(p) : null;
+    },
+    async saveProfile(uid, data) {
+      const db = load();
+      const l = lib(db, uid);
+      l.profile = { ...(l.profile || {}), ...clone(data) };
       write(db);
     },
 
